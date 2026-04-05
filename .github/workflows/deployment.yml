@@ -1,3 +1,5 @@
+name: MERN CI/CD
+
 on:
   push:
     branches:
@@ -8,49 +10,71 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
 
-      - name: Login to Docker Hub
-        run: |
-          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login \
-            -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+    # 1️⃣ Checkout Code
+    - name: Checkout Code
+      uses: actions/checkout@v3
 
-      - name: Build & Push Backend
-        run: |
-          docker build -t ${{ secrets.DOCKER_USERNAME }}/backend:latest ./backend
-          docker push ${{ secrets.DOCKER_USERNAME }}/backend:latest
+    # 2️⃣ Login to DockerHub
+    - name: Docker Login
+      run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u purvapatel1234 --password-stdin
 
-      - name: Build & Push Frontend
-        run: |
-          docker build -t ${{ secrets.DOCKER_USERNAME }}/frontend:latest ./frontend
-          docker push ${{ secrets.DOCKER_USERNAME }}/frontend:latest
+    # 3️⃣ Build Backend Image
+    - name: Build Backend
+      run: docker build -t purvapatel1234/backend ./backend
 
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_KEY }}
-          script: |
-            sudo apt update -y
-            sudo apt install docker.io -y
-            sudo systemctl start docker
-            sudo systemctl enable docker
+    # 4️⃣ Build Frontend Image
+    - name: Build Frontend
+      run: docker build -t purvapatel1234/frontend ./frontend
 
-            sudo docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
+    # 5️⃣ Push Images
+    - name: Push Images
+      run: |
+        docker push purvapatel1234/backend
+        docker push purvapatel1234/frontend
 
-            sudo docker network create mern-network || true
+    # 6️⃣ Deploy to EC2
+    - name: Deploy to EC2
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USERNAME }}
+        key: ${{ secrets.EC2_KEY }}
+        script: |
+          # Pull images
+          sudo docker pull purvapatel1234/backend
+          sudo docker pull purvapatel1234/frontend
 
-            sudo docker stop mongo backend frontend || true
-            sudo docker rm mongo backend frontend || true
+          # Create network
+          sudo docker network create mern-net || true
 
-            sudo docker run -d --name mongo --network mern-network -p 27017:27017 mongo
+          # Stop old containers
+          sudo docker stop mongo || true
+          sudo docker rm mongo || true
 
-            sudo docker pull ${{ secrets.DOCKER_USERNAME }}/backend:latest
-            sudo docker run -d --name backend --network mern-network -p 4000:4000 \
-              ${{ secrets.DOCKER_USERNAME }}/backend:latest
+          sudo docker stop backend || true
+          sudo docker rm backend || true
 
-            sudo docker pull ${{ secrets.DOCKER_USERNAME }}/frontend:latest
-            sudo docker run -d --name frontend -p 7000:7000 \
-              ${{ secrets.DOCKER_USERNAME }}/frontend:latest
+          sudo docker stop frontend || true
+          sudo docker rm frontend || true
+
+          # Run MongoDB
+          sudo docker run -d \
+            --name mongo \
+            --network mern-net \
+            -p 27017:27017 \
+            mongo
+
+          # Run Backend
+          sudo docker run -d \
+            --name backend \
+            --network mern-net \
+            -p 5000:5000 \
+            purvapatel1234/backend
+
+          # Run Frontend
+          sudo docker run -d \
+            --name frontend \
+            --network mern-net \
+            -p 3000:3000 \
+            purvapatel1234/frontend
